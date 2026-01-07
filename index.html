@@ -1,11 +1,492 @@
 <!DOCTYPE html>
-<html lang="zh-HK">
+<html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>我的 GitHub Pages 網站</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>籃球投籃姿勢分析器 Pro</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+<style>
+/* 自定義樣式 */
+body {
+background-color: #1a1a1a;
+color: #e5e5e5;
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+overflow-x: hidden;
+}
+.canvas-container {
+position: relative;
+width: 100%;
+height: 100%;
+background-color: #000;
+display: flex;
+justify-content: center;
+align-items: center;
+overflow: hidden;
+border-radius: 8px;
+box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+#mediaDisplay, #drawingCanvas {
+max-width: 100%;
+max-height: 70vh;
+}
+#drawingCanvas {
+position: absolute;
+top: 50%;
+left: 50%;
+transform: translate(-50%, -50%);
+cursor: crosshair;
+z-index: 10;
+}
+/* 隱藏原生影片控制項，使用自定義的 */
+video::-webkit-media-controls {
+display: none !important;
+}
+/* 滾動條樣式 */
+::-webkit-scrollbar {
+width: 8px;
+}
+::-webkit-scrollbar-track {
+background: #2d2d2d;
+}
+::-webkit-scrollbar-thumb {
+background: #f97316;
+border-radius: 4px;
+}
+.tool-btn.active {
+background-color: #f97316;
+color: white;
+border-color: #f97316;
+}
+input[type=range] {
+accent-color: #f97316;
+}
+</style>
 </head>
-<body>
-<h1>你好！GitHub Pages 已經成功運作 🎉</h1>
-<p>呢度係我嘅第一個 GitHub Pages 頁面。</p>
+<body class="flex flex-col h-screen">
+
+<!-- 頂部導航 -->
+<header class="bg-gray-900 border-b border-gray-700 p-4 flex justify-between items-center shadow-lg">
+<div class="flex items-center gap-3">
+<i class="fa-solid fa-basketball text-orange-500 text-2xl"></i>
+<h1 class="text-xl font-bold tracking-wide text-white">Shot<span class="text-orange-500">Analyzer</span> Pro</h1>
+</div>
+<div class="flex gap-3">
+<input type="file" id="fileInput" accept="video/*,image/*" class="hidden">
+<button onclick="document.getElementById('fileInput').click()" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 font-medium text-sm">
+<i class="fa-solid fa-upload"></i> 上傳影片/照片
+</button>
+<button onclick="exportSnapshot()" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition flex items-center gap-2 font-medium text-sm border border-gray-600">
+<i class="fa-solid fa-camera"></i> 截圖保存
+</button>
+</div>
+</header>
+
+<!-- 主要內容區 -->
+<main class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+
+<!-- 左側：媒體與畫布區 -->
+<div class="flex-1 p-4 flex flex-col bg-gray-800">
+<!-- 播放器區域 -->
+<div class="flex-1 flex justify-center items-center bg-black rounded-lg mb-4 relative canvas-container" id="container">
+<div id="placeholderText" class="text-center text-gray-500">
+<i class="fa-solid fa-film text-6xl mb-4 opacity-50"></i>
+<p class="text-lg">請上傳您的投籃影片或照片以開始分析</p>
+<p class="text-sm mt-2 opacity-75">支援 .mp4, .mov, .jpg, .png</p>
+</div>
+<video id="videoElement" class="hidden" playsinline loop></video>
+<img id="imageElement" class="hidden" draggable="false">
+<canvas id="drawingCanvas"></canvas>
+</div>
+
+<!-- 控制面板 -->
+<div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+<!-- 影片進度與控制 -->
+<div id="videoControls" class="mb-4 hidden">
+<div class="flex items-center justify-between mb-2 text-xs text-gray-400 font-mono">
+<span id="currentTime">00:00:00</span>
+<span id="totalTime">00:00:00</span>
+</div>
+<input type="range" id="seekBar" value="0" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer mb-4">
+
+<div class="flex justify-between items-center flex-wrap gap-2">
+<div class="flex gap-2">
+<button onclick="stepFrame(-0.05)" class="p-2 rounded bg-gray-800 hover:bg-gray-700 text-white" title="上一幀">
+<i class="fa-solid fa-backward-step"></i>
+</button>
+<button id="playPauseBtn" onclick="togglePlay()" class="p-2 w-12 rounded bg-orange-600 hover:bg-orange-700 text-white" title="播放/暫停">
+<i class="fa-solid fa-play"></i>
+</button>
+<button onclick="stepFrame(0.05)" class="p-2 rounded bg-gray-800 hover:bg-gray-700 text-white" title="下一幀">
+<i class="fa-solid fa-forward-step"></i>
+</button>
+</div>
+
+<div class="flex items-center gap-2">
+<span class="text-xs text-gray-400">速度:</span>
+<select id="playbackRate" onchange="changeSpeed()" class="bg-gray-800 text-white text-xs p-1 rounded border border-gray-600 focus:outline-none">
+<option value="0.1">0.1x (超慢)</option>
+<option value="0.25">0.25x (慢動作)</option>
+<option value="0.5">0.5x</option>
+<option value="1.0" selected>1.0x (正常)</option>
+</select>
+</div>
+</div>
+</div>
+
+<!-- 繪圖工具 -->
+<div class="flex flex-wrap gap-3 items-center border-t border-gray-700 pt-3">
+<span class="text-xs text-gray-400 mr-2 font-bold uppercase tracking-wider">繪圖工具</span>
+<button onclick="setTool('line')" class="tool-btn p-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition" id="btn-line" title="畫直線 (檢查垂直度)">
+<i class="fa-solid fa-pen"></i>
+</button>
+<button onclick="setTool('angle')" class="tool-btn p-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 transition" id="btn-angle" title="角度測量 (檢查手肘角度)">
+<i class="fa-solid fa-ruler-combined"></i>
+</button>
+<input type="color" id="colorPicker" value="#f97316" class="w-8 h-8 rounded cursor-pointer bg-transparent border-none">
+<button onclick="clearCanvas()" class="ml-auto text-xs text-red-400 hover:text-red-300 flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/30 transition">
+<i class="fa-solid fa-trash"></i> 清除標記
+</button>
+</div>
+</div>
+</div>
+
+<!-- 右側：分析面板 -->
+<div class="w-full lg:w-80 bg-gray-900 border-l border-gray-700 flex flex-col overflow-y-auto">
+<div class="p-5">
+<h2 class="text-lg font-bold text-white mb-4 border-b border-gray-700 pb-2">投籃機制檢查表</h2>
+
+<div class="space-y-6">
+<!-- 1. 準備動作 -->
+<div class="bg-gray-800 p-3 rounded-lg border border-gray-700">
+<h3 class="font-semibold text-orange-400 text-sm mb-2 uppercase">1. 準備姿勢 (Set Point)</h3>
+<div class="space-y-2">
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">雙腳與肩同寬，膝蓋微彎</span>
+</label>
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">持球手肘成90度 (L型)</span>
+</label>
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">球在額頭上方或視線前方</span>
+</label>
+</div>
+</div>
+
+<!-- 2. 出手與隨球 -->
+<div class="bg-gray-800 p-3 rounded-lg border border-gray-700">
+<h3 class="font-semibold text-orange-400 text-sm mb-2 uppercase">2. 出手 (Release)</h3>
+<div class="space-y-2">
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">手肘完全伸直</span>
+</label>
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">手腕下壓 (Goose neck)</span>
+</label>
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">非投籃手保持穩定，不干擾球</span>
+</label>
+</div>
+</div>
+
+<!-- 3. 軌跡與平衡 -->
+<div class="bg-gray-800 p-3 rounded-lg border border-gray-700">
+<h3 class="font-semibold text-orange-400 text-sm mb-2 uppercase">3. 軌跡 (Arc)</h3>
+<div class="space-y-2">
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">拋物線角度約 45-50 度</span>
+</label>
+<label class="flex items-start gap-2 cursor-pointer hover:bg-gray-700/50 p-1 rounded">
+<input type="checkbox" class="mt-1 accent-orange-500">
+<span class="text-sm text-gray-300">落地位置與起跳位置一致 (平衡)</span>
+</label>
+</div>
+</div>
+</div>
+
+<div class="mt-6 pt-4 border-t border-gray-700">
+<button onclick="generateReport()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium transition text-sm">
+<i class="fa-solid fa-clipboard-check mr-2"></i> 生成分析摘要
+</button>
+<textarea id="analysisOutput" class="w-full mt-3 h-32 bg-gray-800 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 hidden" readonly></textarea>
+</div>
+</div>
+</div>
+</main>
+
+<!-- 腳本 -->
+<script>
+// DOM 元素
+const video = document.getElementById('videoElement');
+const img = document.getElementById('imageElement');
+const canvas = document.getElementById('drawingCanvas');
+const ctx = canvas.getContext('2d');
+const fileInput = document.getElementById('fileInput');
+const container = document.getElementById('container');
+const placeholder = document.getElementById('placeholderText');
+const videoControls = document.getElementById('videoControls');
+const seekBar = document.getElementById('seekBar');
+const currentTimeEl = document.getElementById('currentTime');
+const totalTimeEl = document.getElementById('totalTime');
+const playPauseBtn = document.getElementById('playPauseBtn');
+
+// 狀態變數
+let mediaType = null; // 'video' 或 'image'
+let currentTool = 'line'; // 'line' 或 'angle'
+let isDrawing = false;
+let startX, startY;
+let snapshotData = null; // 用於儲存畫布狀態
+
+// 初始化工具按鈕狀態
+document.getElementById('btn-line').classList.add('active');
+
+// 事件監聽：上傳檔案
+fileInput.addEventListener('change', handleFileUpload);
+
+function handleFileUpload(event) {
+const file = event.target.files[0];
+if (!file) return;
+
+const url = URL.createObjectURL(file);
+placeholder.style.display = 'none';
+
+// 清除舊的繪圖
+clearCanvas();
+
+if (file.type.startsWith('video/')) {
+mediaType = 'video';
+img.classList.add('hidden');
+video.classList.remove('hidden');
+videoControls.classList.remove('hidden');
+video.src = url;
+video.onloadedmetadata = () => {
+resizeCanvas();
+seekBar.max = video.duration;
+totalTimeEl.innerText = formatTime(video.duration);
+};
+} else if (file.type.startsWith('image/')) {
+mediaType = 'image';
+video.classList.add('hidden');
+videoControls.classList.add('hidden');
+img.classList.remove('hidden');
+img.onload = () => {
+resizeCanvas();
+};
+img.src = url;
+}
+}
+
+// 調整畫布大小以匹配媒體
+function resizeCanvas() {
+let width, height;
+if (mediaType === 'video') {
+width = video.videoWidth;
+height = video.videoHeight;
+// 根據容器調整顯示大小的邏輯較複雜，這裡簡化為獲取顯示元素的邊界
+// 在實際應用中，通常會讓 canvas 絕對定位並強制匹配 video 的 clientWidth/Height
+setTimeout(() => {
+canvas.width = video.clientWidth;
+canvas.height = video.clientHeight;
+// 重新應用縮放後的繪圖上下文設定（如果有）
+}, 100);
+} else {
+canvas.width = img.clientWidth;
+canvas.height = img.clientHeight;
+}
+}
+
+// 視窗大小改變時重新調整
+window.addEventListener('resize', resizeCanvas);
+
+// --- 繪圖邏輯 ---
+
+function setTool(tool) {
+currentTool = tool;
+document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
+document.getElementById(`btn-${tool}`).classList.add('active');
+}
+
+function getPos(e) {
+const rect = canvas.getBoundingClientRect();
+// 支援觸控與滑鼠
+const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+return {
+x: clientX - rect.left,
+y: clientY - rect.top
+};
+}
+
+// 滑鼠/觸控事件
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('touchstart', startDraw, {passive: false});
+
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('touchmove', draw, {passive: false});
+
+canvas.addEventListener('mouseup', endDraw);
+canvas.addEventListener('touchend', endDraw);
+
+function startDraw(e) {
+if(e.type === 'touchstart') e.preventDefault(); // 防止滾動
+isDrawing = true;
+const pos = getPos(e);
+startX = pos.x;
+startY = pos.y;
+// 保存當前畫布狀態，以便在拖曳時重繪
+snapshotData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function draw(e) {
+if (!isDrawing) return;
+if(e.type === 'touchmove') e.preventDefault();
+
+const pos = getPos(e);
+const color = document.getElementById('colorPicker').value;
+
+// 清除並恢復到剛點擊時的狀態（實現動態拉線效果）
+ctx.putImageData(snapshotData, 0, 0);
+
+ctx.beginPath();
+ctx.strokeStyle = color;
+ctx.lineWidth = 3;
+ctx.lineCap = 'round';
+
+if (currentTool === 'line') {
+ctx.moveTo(startX, startY);
+ctx.lineTo(pos.x, pos.y);
+ctx.stroke();
+} else if (currentTool === 'angle') {
+// 簡單的角度工具：畫兩條線，從起點延伸
+// 這裡簡化為折線：起點 -> 當前點 (這不是完美的角度測量，但在移動端較易操作)
+// 更專業的通常是三點定角度
+ctx.moveTo(startX, startY);
+ctx.lineTo(pos.x, pos.y);
+ctx.stroke();
+
+// 畫一個小圓在起點
+ctx.beginPath();
+ctx.arc(startX, startY, 4, 0, Math.PI * 2);
+ctx.fillStyle = color;
+ctx.fill();
+}
+}
+
+function endDraw() {
+isDrawing = false;
+}
+
+function clearCanvas() {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// --- 影片控制邏輯 ---
+
+function togglePlay() {
+if (video.paused) {
+video.play();
+playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+} else {
+video.pause();
+playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+}
+}
+
+function changeSpeed() {
+const rate = parseFloat(document.getElementById('playbackRate').value);
+video.playbackRate = rate;
+}
+
+function stepFrame(seconds) {
+video.pause();
+playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+video.currentTime += seconds;
+}
+
+// 更新進度條
+video.addEventListener('timeupdate', () => {
+seekBar.value = video.currentTime;
+currentTimeEl.innerText = formatTime(video.currentTime);
+});
+
+// 拖動進度條
+seekBar.addEventListener('input', () => {
+video.currentTime = seekBar.value;
+});
+
+function formatTime(seconds) {
+const date = new Date(seconds * 1000);
+const mm = date.getUTCMinutes();
+const ss = date.getUTCSeconds();
+const ms = Math.floor(date.getUTCMilliseconds() / 10);
+return `${pad(mm)}:${pad(ss)}:${pad(ms)}`;
+}
+
+function pad(num) {
+return num.toString().padStart(2, '0');
+}
+
+// --- 功能與導出 ---
+
+function generateReport() {
+const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+let checkedCount = 0;
+let total = checkboxes.length;
+
+checkboxes.forEach(cb => {
+if (cb.checked) checkedCount++;
+});
+
+const score = Math.round((checkedCount / total) * 100);
+const output = document.getElementById('analysisOutput');
+output.classList.remove('hidden');
+
+const now = new Date().toLocaleString('zh-TW');
+
+let advice = "";
+if (score < 60) advice = "建議重點：加強基礎準備姿勢，確保下半身力量傳遞。";
+else if (score < 80) advice = "建議重點：注意手部跟隨動作的一致性，保持高出手點。";
+else advice = "投籃機制非常優秀！請保持肌肉記憶並加強抗干擾能力。";
+
+output.value = `【投籃分析報告】\n時間：${now}\n機制完成度：${score}%\n\n${advice}\n\n此報告基於您的自我檢查項目生成。`;
+}
+
+function exportSnapshot() {
+if (!mediaType) {
+alert('請先上傳影片或圖片'); // 使用自定義模態框會更好，這裡簡化
+return;
+}
+
+// 創建一個臨時畫布來合併影像與繪圖
+const tempCanvas = document.createElement('canvas');
+tempCanvas.width = canvas.width;
+tempCanvas.height = canvas.height;
+const tCtx = tempCanvas.getContext('2d');
+
+// 繪製背景 (影片當前幀 或 圖片)
+if (mediaType === 'video') {
+tCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+} else {
+tCtx.drawImage(img, 0, 0, canvas.width, canvas.height);
+}
+
+// 繪製標記層
+tCtx.drawImage(canvas, 0, 0);
+
+// 下載
+const link = document.createElement('a');
+link.download = `shot-analysis-${Date.now()}.png`;
+link.href = tempCanvas.toDataURL();
+link.click();
+}
+</script>
 </body>
 </html>
+
